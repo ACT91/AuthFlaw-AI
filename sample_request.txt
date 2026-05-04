@@ -1,0 +1,20 @@
+POST /login.php HTTP/1.1
+Host: localhost
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8
+Accept-Language: en-US,en;q=0.9
+Accept-Encoding: gzip, deflate, br
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 89
+Origin: http://localhost
+Connection: keep-alive
+Referer: http://localhost/login.php
+Cookie: PHPSESSID=814s9pgtltmb8050uavtaqft67; security=low
+Upgrade-Insecure-Requests: 1
+Sec-Fetch-Dest: document
+Sec-Fetch-Mode: navigate
+Sec-Fetch-Site: same-origin
+Sec-Fetch-User: ?1
+Priority: u=0, i
+
+username=admin&password=password&Login=Login&user_token=3e4583e2522aee640b3b01b62c6682b7

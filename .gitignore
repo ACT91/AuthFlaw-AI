@@ -40,10 +40,10 @@ venv.bak/
 .DS_Store
 
 # Reports and Logs
-reports/*.json
-reports/*.html
-reports/*.xml
-!reports/.gitkeep
+#reports/*.json
+#reports/*.html
+#reports/*.xml
+#!reports/.gitkeep
 *.log
 logs/
 

