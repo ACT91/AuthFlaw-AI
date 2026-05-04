@@ -1,0 +1,17 @@
+AuthFlaw AI - Authentication Bypass Testing Tool
+Version: 1.0.0
+Release Date: 2024
+Author: Security Research Team
+
+CHANGELOG:
+----------
+v1.0.0 (Initial Release)
+- AI-powered authentication analysis using Ollama
+- Burp Suite proxy integration
+- SQL Injection bypass detection
+- Mass Assignment vulnerability testing
+- JWT attack modules (none algorithm, confusion)
+- Host Header Injection testing
+- Registration privilege escalation
+- Automated response analysis
+- JSON report generation

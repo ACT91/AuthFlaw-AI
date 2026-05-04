@@ -1,0 +1,6 @@
+ollama>=0.1.0
+requests>=2.31.0
+beautifulsoup4>=4.12.0
+colorama>=0.4.6
+pyyaml>=3.13
+click>=8.1.0

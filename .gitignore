@@ -1,0 +1,108 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environment
+authflaw_env/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Reports and Logs
+reports/*.json
+reports/*.html
+reports/*.xml
+!reports/.gitkeep
+*.log
+logs/
+
+# Burp Suite
+*.burp
+burp-project/
+
+# Sensitive Data
+*.key
+*.pem
+*.crt
+*.p12
+config.local.yaml
+secrets.yaml
+.env
+.env.local
+
+# Test Data
+test_requests/
+test_results/
+*.pcap
+
+# OS
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Temporary Files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+
+# Coverage Reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Documentation Build
+docs/_build/
+site/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Credentials (extra safety)
+*credentials*
+*password*
+*secret*
+*token*
+!requirements.txt
