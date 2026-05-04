@@ -44,15 +44,19 @@ class AuthFlawAI:
         }
         self.session = requests.Session()
         self.session.proxies = self.burp_proxy
-        self.session.verify = False  # Burp CA cert
+        self.session.verify = False
         self.findings = []
         
-        # Initialize local AI
+        # Test Ollama connection
         try:
             self.ai = ollama.Client()
-        except:
+            # Quick connectivity test
+            test = self.ai.generate(model="llama3.2", prompt="test", options={"num_predict": 1})
+            print(f"{Fore.GREEN}[+] AI connected (Ollama llama3.2)\n")
+        except Exception as e:
             self.ai = None
-            print(f"{Fore.YELLOW}Warning: Ollama not available, using fallback analysis")
+            print(f"{Fore.YELLOW}[!] Ollama not available: {str(e)[:60]}")
+            print(f"{Fore.YELLOW}[!] Using fallback mode (still works!)\n")
         
     def parse_raw_request(self, raw_request: str) -> Dict:
         """Parse raw HTTP request into structured format"""
@@ -128,39 +132,35 @@ class AuthFlawAI:
     def ai_analyze_request(self, request: Dict) -> Dict:
         """Use local AI to analyze request and suggest attack modules"""
         
-        prompt = f"""Analyze this HTTP authentication request and respond with ONLY valid JSON.
-
-Request Details:
-- Method: {request['method']}
-- Path: {request['path']}
-- Auth Type: {request['auth_type']}
-- Body: {request['body'][:200]}
-
-Respond with ONLY this JSON structure (no other text):
-{{
-    "auth_mechanism": "Form_Login",
-    "potential_vulns": ["SQLi", "MassAssignment"],
-    "modules_to_run": ["SQLi", "MassAssignment"],
-    "payloads": ["admin' OR '1'='1' --", "role=admin"]
-}}"""
+        if not self.ai:
+            return self._fallback_analysis(request)
         
-        if self.ai:
-            try:
-                response = self.ai.generate(model="llama3.2", prompt=prompt)
-                # Try to extract JSON from response
-                response_text = response['response'].strip()
-                
-                # Try to find JSON in the response
-                if '{' in response_text:
-                    json_start = response_text.find('{')
-                    json_end = response_text.rfind('}') + 1
-                    json_str = response_text[json_start:json_end]
-                    result = json.loads(json_str)
-                    return result
-                else:
-                    raise ValueError("No JSON found in response")
-            except Exception as e:
-                print(f"{Fore.YELLOW}  AI unavailable ({str(e)[:50]}), using fallback")
+        prompt = f"""Analyze auth request. JSON only:
+Method: {request['method']}
+Path: {request['path']}
+Type: {request['auth_type']}
+Body: {request['body'][:100]}
+
+Response:
+{{"auth_mechanism":"Form_Login","potential_vulns":["SQLi"],"modules_to_run":["SQLi"]}}"""
+        
+        try:
+            print(f"{Fore.CYAN}  [AI] Analyzing with Ollama...")
+            response = self.ai.generate(
+                model="llama3.2", 
+                prompt=prompt,
+                options={"num_predict": 100, "temperature": 0.1, "num_ctx": 512}
+            )
+            
+            response_text = response['response'].strip()
+            if '{' in response_text:
+                json_start = response_text.find('{')
+                json_end = response_text.rfind('}') + 1
+                result = json.loads(response_text[json_start:json_end])
+                print(f"{Fore.GREEN}  [AI] Analysis complete")
+                return result
+        except Exception as e:
+            print(f"{Fore.YELLOW}  [AI] Failed: {str(e)[:50]}, using fallback")
         
         return self._fallback_analysis(request)
     
@@ -316,47 +316,34 @@ Respond with ONLY this JSON structure (no other text):
     def ai_analyze_response(self, request: Dict, response: Dict, original: Dict) -> Dict:
         """AI analyzes response to determine if vulnerability exists"""
         
-        prompt = f"""
-I sent this attack payload:
-
-MODULE: {request.get('module')}
-PAYLOAD: {request.get('payload')}
-
-And received this response:
-
-STATUS: {response.get('status')}
-HEADERS: {json.dumps(response.get('headers', {}), indent=2)}
-BODY: {response.get('body', '')[:500]}
-
-Original normal response would be different.
-
-Answer:
-1. Is this a successful authentication bypass? (yes/no/partial)
-2. What vulnerability does this indicate?
-3. Should I try a different variation?
-4. What's the CVSS score estimate?
-
-Return JSON:
-{{
-    "success": "yes/no/partial",
-    "vulnerability": "string or null",
-    "next_action": "try_variation/report_finding/stop",
-    "cvss_estimate": 0.0
-}}
-"""
+        # Skip AI analysis for speed - use heuristics
+        status = response.get('status')
+        body_length = response.get('length', 0)
         
-        if self.ai:
-            try:
-                response_ai = self.ai.generate(model="llama3.2", prompt=prompt)
-                return json.loads(response_ai['response'])
-            except:
-                pass
+        # Simple heuristic-based detection
+        if status == 200 and body_length > 100:
+            return {
+                "success": "yes", 
+                "vulnerability": "Possible authentication bypass", 
+                "next_action": "report_finding", 
+                "cvss_estimate": 8.0
+            }
+        elif status == 302:
+            location = response.get('headers', {}).get('Location', '')
+            if 'login' not in location.lower() and 'error' not in location.lower():
+                return {
+                    "success": "yes", 
+                    "vulnerability": "Redirect to authenticated area", 
+                    "next_action": "report_finding", 
+                    "cvss_estimate": 8.5
+                }
         
-        # Simple heuristic if AI fails
-        if response.get('status') in [200, 302]:
-            return {"success": "yes", "vulnerability": "Possible bypass", "next_action": "report_finding", "cvss_estimate": 7.5}
-        else:
-            return {"success": "no", "vulnerability": None, "next_action": "stop", "cvss_estimate": 0.0}
+        return {
+            "success": "no", 
+            "vulnerability": None, 
+            "next_action": "stop", 
+            "cvss_estimate": 0.0
+        }
     
     def run(self, raw_request: str):
         """Main execution flow"""
